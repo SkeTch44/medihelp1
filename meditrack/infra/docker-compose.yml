@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: meditrack
+      POSTGRES_USER: meditrack
+      POSTGRES_PASSWORD: meditrack_dev_only
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U meditrack -d meditrack"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  api:
+    build: ../apps/api
+    env_file: ../.env
+    ports: ["8000:8000"]
+    volumes:
+      - prescription_uploads:/app/private_uploads
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  worker:
+    build: ../apps/api
+    command: celery -A app.workers.celery_app.celery worker --loglevel=INFO
+    env_file: ../.env
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  scheduler:
+    build: ../apps/api
+    command: celery -A app.workers.celery_app.celery beat --loglevel=INFO
+    env_file: ../.env
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+  web:
+    build: ../apps/web
+    environment:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+    ports: ["3000:3000"]
+    depends_on: [api]
+volumes:
+  prescription_uploads:
+  pgdata:
